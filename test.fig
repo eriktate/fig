@@ -1,0 +1,12 @@
+std :: import("std");
+
+Foo :: struct {
+  string: str,
+  int: i32,
+  float: f32,
+}
+
+main :: () {
+  foo := Foo{ string: "hello", int: 123_456, float: 12.34 };
+  std.printf("hello world\n");
+}
