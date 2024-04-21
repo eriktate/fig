@@ -1,33 +1,24 @@
-std :: import("std");
+// constant name binding inspired by Odin/Jai, import syntax inspired by zig
+log :: import("std").log;
 
-Vec3 :: ($T) -> type {
-	struct {
-		x: T,
-		y: T,
-		z: T,
-	}
+// This is almost identical to Odin struct declarations
+Greeting :: struct {
+	greeting: str,
+	name: str,
+};
+
+// functions are just constants bound to a function signature
+greet :: (greeting: Greeting) -> void {
+	log.println("{greeting.greeting}, {greeting.name}"); // format strings are syntax sugar something like strings.format("%s, %s", greeting, name)
 }
 
-Vec2 :: ($T) -> type {
-	struct {
-		x: T,
-		y: T,
-	}
-}
+main :: () -> void {
+	// walrus operator is declaration, assignment, and type inferrence in one
+	greeting := Greeting{
+		greeting = "Hello",
+		name = "World", // trailing commas are encouraged
+	};
 
-Vertex :: struct {
-	pos: Vec3(f32),
-	tex_pos: Vec2(f32),
-}
-
-Quad :: struct {
-	
-}
-
-Sprite :: struct {
-
-}
-
-main :: () {
-	
+	// UFCS mostly for convenience and to better support certain programming styles, although there aren't strictly any methods in Fig
+	greeting.greet(); // same as greeting(greet);
 }

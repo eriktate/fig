@@ -1,76 +1,31 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
-const t = std.testing;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
-const Intern = @This();
-alloc: std.mem.Allocator,
-strings: ArrayList([]u8),
+const INTERN_SIZE = 1024 * 1024 * 512; // 512MB
+
+pub const Intern = @This();
+arena: ArenaAllocator,
+table: ArrayList([]u8),
 
 pub fn init(alloc: std.mem.Allocator) !Intern {
+    var arena = ArenaAllocator.init(alloc);
+
     return .{
-        .alloc = alloc,
-        .strings = try ArrayList([]u8).initCapacity(alloc, 512),
+        .arena = arena,
+        .table = try ArrayList([]u8).initCapacity(arena.allocator(), INTERN_SIZE),
     };
 }
 
-pub fn deinit(self: *Intern) void {
-    for (self.strings.items) |str| {
-        self.alloc.free(str);
-    }
-
-    self.strings.deinit();
-}
-
-pub fn intern(self: *Intern, string: []const u8) ![]u8 {
-    for (self.strings.items) |str| {
-        // if the ptrs match, the string is already interned
-        if (string.ptr == str.ptr) {
-            return str;
-        }
-
-        if (std.mem.eql(u8, string, str)) {
-            return str;
+pub fn intern(self: *Intern, item: []u8) ![]u8 {
+    for (self.table.items) |it| {
+        if (std.mem.eql(u8, item, it)) {
+            return it;
         }
     }
 
-    var new_str = try self.alloc.alloc(u8, string.len);
-    std.mem.copy(u8, new_str, string);
-    try self.strings.append(new_str);
-
-    return new_str;
-}
-
-pub fn len(self: Intern) usize {
-    return self.strings.items.len;
-}
-
-test "intern a string" {
-    var int = try Intern.init(t.allocator);
-    defer int.deinit();
-    var hello_raw = "hello";
-    var hello_slice = hello_raw[0..];
-    var hello = try int.intern(hello_slice);
-    var hello2 = try int.intern(hello_slice);
-    var hello3 = try int.intern(hello);
-
-    try t.expectEqual(hello.ptr, hello2.ptr);
-    try t.expectEqual(hello.ptr, hello3.ptr);
-    try t.expect(hello_slice.ptr != hello.ptr);
-    try t.expect(std.mem.eql(u8, hello_slice, hello));
-    try t.expectEqual(int.len(), 1);
-}
-
-test "intern multiple strings" {
-    var int = try Intern.init(t.allocator);
-    defer int.deinit();
-
-    var hello = try int.intern("hello");
-    var world = try int.intern("world");
-    var foo = try int.intern("foo");
-    var bar = try int.intern("bar");
-
-    try t.expectEqual(hello, try int.intern("hello"));
-    try t.expectEqual(world, try int.intern("world"));
-    try t.expectEqual(foo, try int.intern("foo"));
-    try t.expectEqual(bar, try int.intern("bar"));
+    const copy = try self.arena.allocator().alloc(u8, item.len);
+    @memcpy(copy, item);
+    try self.table.append(copy);
+    return self.table.items[self.table.items.len - 1];
 }

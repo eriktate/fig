@@ -1,17 +1,13 @@
 const std = @import("std");
-const Lexer = @import("lex.zig");
+const lex = @import("./lex.zig");
 
 pub fn main() !void {
-    var file = try std.fs.cwd().openFile("test.fig", .{});
-    defer file.close();
+    const file = try std.fs.cwd().openFile("./example.fig", .{});
+    var buf: [1024 * 1024]u8 = undefined;
+    const file_len = try file.readAll(&buf);
 
-    var src: [1024 * 1024 * 5]u8 = undefined;
-    var file_len = try file.readAll(&src);
-
-    var allocator = std.heap.page_allocator;
-    var res = try Lexer.lex(allocator, src[0..file_len]);
-    defer res.deinit();
-    for (res.tokens) |token| {
-        token.print();
+    const res = try lex.lex(std.heap.page_allocator, buf[0..file_len]);
+    for (res.tokens) |tok| {
+        std.log.info("{any} {d}:{d}-{d} {any}", .{ tok.kind, tok.line, tok.start_col, tok.end_col });
     }
 }
