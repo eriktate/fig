@@ -8,5 +8,5 @@ Foo :: struct {
 
 main :: () {
   foo := Foo{ string: "hello", int: 123_456, float: 12.34 };
-  std.printf("hello world\n");
+  std.print("hello world\n");
 }

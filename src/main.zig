@@ -6,9 +6,9 @@ pub fn main() !void {
     defer file.close();
 
     var src: [1024 * 1024 * 5]u8 = undefined;
-    var file_len = try file.readAll(&src);
+    const file_len = try file.readAll(&src);
 
-    var allocator = std.heap.page_allocator;
+    const allocator = std.heap.page_allocator;
     var res = try Lexer.lex(allocator, src[0..file_len]);
     defer res.deinit();
     for (res.tokens) |token| {

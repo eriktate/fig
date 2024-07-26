@@ -470,7 +470,7 @@ fn lexNumLit(ctx: *Context, initial_kind: Kind) !void {
 
         ctx.token.kind = kind;
         ctx.token.end_col = ctx.reader.col;
-        var value = try ctx.strings.intern(ctx.str.items);
+        const value = try ctx.strings.intern(ctx.str.items);
         ctx.token.value = if (kind == .int_lit) .{ .int_lit = value } else .{ .float_lit = value };
         ctx.str.items.len = 0;
         ctx.mode = getMode(ch);
