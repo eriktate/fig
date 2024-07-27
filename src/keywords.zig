@@ -28,6 +28,8 @@ const keywords = [@intFromEnum(Keyword.Trait) + 1][]const u8{
     "str",
     "true",
     "false",
+    "extern",
+    "export",
     "trait",
 };
 
@@ -59,6 +61,8 @@ pub const Keyword = enum {
     Str,
     True,
     False,
+    Extern,
+    Export,
     Trait,
 
     pub fn toString(self: Keyword) []const u8 {
