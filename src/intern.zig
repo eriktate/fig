@@ -3,22 +3,20 @@ const ArrayList = std.ArrayList;
 const t = std.testing;
 
 const Intern = @This();
-alloc: std.mem.Allocator,
+arena: std.heap.ArenaAllocator,
 strings: ArrayList([]u8),
 
 pub fn init(alloc: std.mem.Allocator) !Intern {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+
     return .{
-        .alloc = alloc,
-        .strings = try ArrayList([]u8).initCapacity(alloc, 512),
+        .arena = arena,
+        .strings = try ArrayList([]u8).initCapacity(arena.allocator(), 1024),
     };
 }
 
 pub fn deinit(self: *Intern) void {
-    for (self.strings.items) |str| {
-        self.alloc.free(str);
-    }
-
-    self.strings.deinit();
+    self.arena.deinit();
 }
 
 pub fn intern(self: *Intern, string: []const u8) ![]u8 {
@@ -33,8 +31,8 @@ pub fn intern(self: *Intern, string: []const u8) ![]u8 {
         }
     }
 
-    var new_str = try self.alloc.alloc(u8, string.len);
-    std.mem.copy(u8, new_str, string);
+    const new_str = try self.arena.allocator().alloc(u8, string.len);
+    @memcpy(new_str, string);
     try self.strings.append(new_str);
 
     return new_str;
@@ -48,10 +46,10 @@ test "intern a string" {
     var int = try Intern.init(t.allocator);
     defer int.deinit();
     var hello_raw = "hello";
-    var hello_slice = hello_raw[0..];
-    var hello = try int.intern(hello_slice);
-    var hello2 = try int.intern(hello_slice);
-    var hello3 = try int.intern(hello);
+    const hello_slice = hello_raw[0..];
+    const hello = try int.intern(hello_slice);
+    const hello2 = try int.intern(hello_slice);
+    const hello3 = try int.intern(hello);
 
     try t.expectEqual(hello.ptr, hello2.ptr);
     try t.expectEqual(hello.ptr, hello3.ptr);
@@ -64,13 +62,14 @@ test "intern multiple strings" {
     var int = try Intern.init(t.allocator);
     defer int.deinit();
 
-    var hello = try int.intern("hello");
-    var world = try int.intern("world");
-    var foo = try int.intern("foo");
-    var bar = try int.intern("bar");
+    const hello = try int.intern("hello");
+    const world = try int.intern("world");
+    const foo = try int.intern("foo");
+    const bar = try int.intern("bar");
 
     try t.expectEqual(hello, try int.intern("hello"));
     try t.expectEqual(world, try int.intern("world"));
     try t.expectEqual(foo, try int.intern("foo"));
     try t.expectEqual(bar, try int.intern("bar"));
+    try t.expectEqual(int.len(), 4);
 }

@@ -1,163 +1,8 @@
 const std = @import("std");
 const ArrayList = std.ArrayList;
 const Intern = @import("intern.zig");
-
-// order between Symbol and symbols _must_ match
-const symbols = [@intFromEnum(Symbol.range_excl) + 1][]const u8{
-    "+", //simple ops
-    "-",
-    "*",
-    "/",
-    "%",
-    "&",
-    "|",
-    "^",
-    "!",
-    "?",
-    ".",
-    ",",
-    ":",
-    "$",
-    ";",
-    "=", // assignments
-    ":=",
-    "::",
-    "+=",
-    "-=",
-    "*=",
-    "/=",
-    "%=",
-    "&=",
-    "|=",
-    "^=",
-    "==", // comparisons
-    "&&",
-    "||",
-    "!=",
-    "(", // containers
-    ")",
-    "[",
-    "]",
-    "{",
-    "}",
-    "->", // random
-    "..",
-    "..=",
-    "..<",
-};
-
-pub const Symbol = enum {
-    plus,
-    minus,
-    star,
-    slash,
-    mod,
-    unary_and,
-    unary_or,
-    xor,
-    bang,
-    question,
-    dot,
-    comma,
-    colon,
-    dollar,
-    semicolon,
-
-    assign,
-    infer_bind,
-    infer_const,
-    plus_assign,
-    minus_assign,
-    star_assign,
-    slash_assign,
-    mod_assign,
-    and_assign,
-    or_assign,
-    xor_assign,
-
-    eq,
-    log_and,
-    log_or,
-    band_eq,
-
-    l_paren,
-    r_paren,
-    l_bracket,
-    r_bracket,
-    l_brace,
-    r_brace,
-
-    arrow,
-    range,
-    range_incl,
-    range_excl,
-
-    pub fn toString(self: Symbol) []const u8 {
-        return symbols[@intFromEnum(self)];
-    }
-};
-
-const keywords = [@intFromEnum(Keyword.Trait) + 1][]const u8{
-    "import",
-    "if",
-    "for",
-    "match",
-    "struct",
-    "variant",
-    "return",
-    "inline",
-    "u8",
-    "u16",
-    "u32",
-    "u64",
-    "u128",
-    "i8",
-    "i16",
-    "i32",
-    "i64",
-    "i128",
-    "f32",
-    "f64",
-    "bool",
-    "byte",
-    "rune",
-    "type",
-    "str",
-    "trait",
-};
-
-pub const Keyword = enum {
-    Import,
-    If,
-    For,
-    Match,
-    Struct,
-    Variant,
-    Return,
-    Inline,
-    U8,
-    U16,
-    U32,
-    U64,
-    U128,
-    I8,
-    I16,
-    I32,
-    I64,
-    I128,
-    F32,
-    F64,
-    Bool,
-    Byte,
-    Rune, // alias for i32 representing a Unicode code point, borrowed from Go
-    Type,
-    Str,
-    Trait,
-
-    pub fn toString(self: Keyword) []const u8 {
-        return keywords[@intFromEnum(self)];
-    }
-};
+const keywords = @import("keywords.zig");
+const symbols = @import("symbols.zig");
 
 const LexErr = error{
     LexFailure,
@@ -171,15 +16,15 @@ pub const Kind = enum {
     keyword,
     symbol,
     string_lit,
-    int_lit,
+    int_lit, // binary, octal, hex?
     float_lit,
     none,
 };
 
 pub const TokenValue = union(Kind) {
     ident: []u8,
-    keyword: Keyword,
-    symbol: Symbol,
+    keyword: keywords.Keyword,
+    symbol: symbols.Symbol,
     string_lit: []u8,
     int_lit: []u8,
     float_lit: []u8,
@@ -187,8 +32,9 @@ pub const TokenValue = union(Kind) {
 };
 
 pub const Token = struct {
-    kind: Kind,
-    line: usize,
+    kind: Kind, // duplicative of discriminated value?
+    start_line: usize,
+    end_line: usize, // typically the same as start_line
     start_col: usize,
     end_col: usize,
     value: TokenValue,
@@ -198,7 +44,7 @@ pub const Token = struct {
     }
 
     pub fn print(self: Token) void {
-        std.debug.print("{any} {d}:{d}-{d} ", .{ self.kind, self.line, self.start_col, self.end_col });
+        std.debug.print("{any} {d}:{d}-{d} ", .{ self.kind, self.start_line, self.start_col, self.end_col });
         switch (self.value) {
             .ident => |str| std.debug.print("{s}\n", .{str}),
             .symbol => |sym| std.debug.print("{s}\n", .{sym.toString()}),
@@ -211,55 +57,6 @@ pub const Token = struct {
     }
 };
 
-const Reader = struct {
-    src: []const u8,
-    line: usize,
-    col: usize,
-    idx: usize,
-
-    fn init(src: []const u8) Reader {
-        return .{
-            .src = src,
-            .idx = 0,
-            .col = 1,
-            .line = 1,
-        };
-    }
-
-    fn next(self: *Reader) ?u8 {
-        if (peek(self)) |result| {
-            if (result == '\n') {
-                self.line += 1;
-                self.col = 0;
-            }
-
-            self.idx += 1;
-            self.col += 1;
-            return result;
-        }
-
-        return null;
-    }
-
-    fn peek(self: *Reader) ?u8 {
-        if (self.idx < self.src.len) {
-            return self.src[self.idx];
-        }
-
-        return null;
-    }
-
-    fn skip(self: *Reader) void {
-        _ = self.next();
-    }
-
-    fn reset(self: *Reader) void {
-        self.idx = 0;
-        self.line = 1;
-        self.col = 1;
-    }
-};
-
 const Mode = enum {
     ident,
     keyword,
@@ -267,90 +64,353 @@ const Mode = enum {
     string_lit,
     int_lit,
     float_lit,
+    comment,
+    finished,
     none,
 };
 
-const Context = struct {
-    mode: Mode,
+const Window = struct {
+    start_idx: usize,
+    start_line: usize,
+    start_col: usize,
+};
+
+const Stream = struct {
+    src: []const u8,
+    idx: usize,
     line: usize,
     col: usize,
-    reader: Reader,
-    strings: Intern,
-    alloc: std.mem.Allocator,
+    prev_col: usize, // this is only used for an edge case where Stream.prev() goes back a line (e.g. with trailing commas)
+    win: Window,
 
-    tokens: ArrayList(Token),
-    token: Token,
-    str: ArrayList(u8),
-
-    pub fn init(alloc: std.mem.Allocator) !Context {
-        return .{
-            .mode = .none,
-            .line = 0,
-            .col = 0,
-            .tokens = try ArrayList(Token).initCapacity(alloc, 512),
-            .strings = try Intern.init(alloc),
-            .alloc = alloc,
-            .reader = undefined,
-            .token = Token.init(0, 0),
-            .str = try ArrayList(u8).initCapacity(alloc, 512),
+    fn init(src: []const u8) Stream {
+        return Stream{
+            .src = src,
+            .idx = 0,
+            .line = 1,
+            .col = 1,
+            .prev_col = 1,
+            .win = Window{
+                .start_idx = 0,
+                .start_line = 1,
+                .start_col = 1,
+            },
         };
     }
 
-    pub fn deinit(self: Context) void {
-        self.str.deinit();
+    fn startWindow(self: *Stream) void {
+        self.win = Window{
+            .start_line = self.line,
+            .start_col = self.col,
+            .start_idx = self.idx,
+        };
     }
 
-    pub fn pushToken(self: *Context) !void {
-        if (self.token.kind != .none) {
-            try self.tokens.append(self.token);
-            // self.token.print();
+    fn sliceWindowSubIdx(self: Stream, sub_idx: usize) []const u8 {
+        return self.src[self.win.start_idx .. self.idx - sub_idx];
+    }
+
+    fn sliceWindow(self: Stream) []const u8 {
+        return self.sliceWindowSubIdx(0);
+    }
+
+    fn next(self: *Stream) ?u8 {
+        const ch = self.peek();
+        if (ch == null) {
+            return null;
         }
 
-        self.token = Token.init(self.reader.line, self.reader.col);
+        self.prev_col = self.col;
+        self.col += 1;
+        if (ch == '\n') {
+            self.line += 1;
+            self.col = 1;
+        }
+
+        self.idx += 1;
+        return ch;
+    }
+
+    fn peek(self: Stream) ?u8 {
+        if (self.idx < self.src.len) {
+            return self.src[self.idx];
+        }
+
+        return null;
+    }
+
+    fn skip(self: *Stream) void {
+        _ = self.next();
+    }
+
+    // NOTE (etate): this will cause problems with col/line counting if going back more than one character, it's meant to support one specific edge case with lexing symbols
+    fn prev(self: *Stream) void {
+        if (self.idx == 0) {
+            return;
+        }
+
+        self.idx -= 1;
+        self.col = self.prev_col;
+        const ch = self.src[self.idx];
+        if (ch == '\n') {
+            self.line -= 1;
+        }
+    }
+
+    fn peekPrev(self: Stream) ?u8 {
+        if (self.idx == 0) {
+            return null;
+        }
+
+        return self.src[self.idx - 1];
     }
 };
 
-inline fn isAlpha(ch: u8) bool {
+pub const Result = struct {
+    tokens: []Token,
+    strings: *Intern,
+    alloc: std.mem.Allocator,
+
+    pub fn deinit(self: *Result) void {
+        self.alloc.free(self.tokens);
+        self.strings.deinit();
+    }
+};
+
+pub const Lexer = struct {
+    alloc: std.mem.Allocator,
+    mode: Mode,
+    stream: Stream,
+    strings: *Intern,
+    tokens: ArrayList(Token),
+
+    pub fn init(alloc: std.mem.Allocator, strings: *Intern) !Lexer {
+        return Lexer{
+            .alloc = alloc,
+            .mode = .none,
+            .stream = undefined,
+            .strings = strings,
+            .tokens = try ArrayList(Token).initCapacity(alloc, 100),
+        };
+    }
+
+    fn lexIdent(self: *Lexer) !void {
+        var stream = &self.stream;
+
+        stream.startWindow();
+        while (canStartIdent(stream.peek())) {
+            stream.skip();
+        }
+
+        var tok = Token{
+            .kind = .ident,
+            .start_line = stream.win.start_line,
+            .end_line = stream.line,
+            .start_col = stream.win.start_col,
+            .end_col = stream.col,
+            .value = undefined,
+        };
+
+        const window = stream.sliceWindow();
+        const keyword = keywords.getKeyword(window);
+        if (keyword) |kw| {
+            tok.kind = .keyword;
+            tok.value = .{ .keyword = kw };
+        } else {
+            tok.value = .{ .ident = try self.strings.intern(window) };
+        }
+
+        try self.tokens.append(tok);
+        self.mode = getMode(stream.peek());
+    }
+
+    fn lexComment(self: *Lexer, multiline: bool) !void {
+        var stream = &self.stream;
+        while (stream.next()) |ch| {
+            if (multiline) {
+                if (ch == '/' and stream.peekPrev() == '*') {
+                    return;
+                }
+            } else {
+                if (ch == '\n') {
+                    return;
+                }
+            }
+        }
+    }
+
+    fn lexSymbol(self: *Lexer) !void {
+        var stream = &self.stream;
+        stream.startWindow();
+
+        while (symbols.isSymbolPrefix(stream.sliceWindow())) {
+            stream.skip();
+        }
+
+        _ = stream.prev();
+        const sym = symbols.getSymbol(stream.sliceWindow()) orelse return LexErr.InvalidSymbol;
+
+        if (sym == .comment) {
+            return self.lexComment(false);
+        }
+
+        try self.tokens.append(Token{
+            .kind = .symbol,
+            .start_line = stream.win.start_line,
+            .end_line = stream.line,
+            .start_col = stream.win.start_col,
+            .end_col = stream.col,
+            .value = .{ .symbol = sym },
+        });
+
+        self.mode = getMode(stream.peek());
+    }
+
+    fn lexStringLit(self: *Lexer) !void {
+        var stream = &self.stream;
+
+        stream.startWindow();
+        var escaped = false;
+
+        stream.skip(); // first character will be a quote
+        while (stream.peek()) |ch| {
+            defer stream.skip();
+
+            if (ch == '\\' and !escaped) {
+                escaped = true;
+                continue;
+            }
+
+            if (ch == '"' and !escaped) {
+                break;
+            }
+
+            escaped = false;
+        }
+
+        const window = stream.sliceWindow();
+        try self.tokens.append(Token{
+            .kind = .string_lit,
+            .start_line = stream.win.start_line,
+            .end_line = stream.line,
+            .start_col = stream.win.start_col,
+            .end_col = stream.col,
+            .value = .{ .string_lit = try self.strings.intern(window) },
+        });
+        self.tokens.items[self.tokens.items.len - 1].print();
+    }
+
+    fn lexNumLit(self: *Lexer, initial_kind: Kind) !void {
+        var stream = &self.stream;
+
+        stream.startWindow();
+        var kind = initial_kind;
+        while (stream.peek()) |ch| {
+            if (isNumeric(ch) or ch == '_') {
+                stream.skip();
+                continue;
+            }
+
+            if (ch == '.' and kind != .float_lit) {
+                kind = .float_lit;
+                stream.skip();
+                continue;
+            }
+
+            if (ch == '.') {
+                return LexErr.InvalidFloatLit;
+            }
+
+            break;
+        }
+
+        try self.tokens.append(Token{
+            .kind = kind,
+            .start_line = stream.win.start_line,
+            .end_line = stream.line,
+            .start_col = stream.win.start_col,
+            .end_col = stream.col,
+            .value = switch (kind) {
+                .int_lit => .{ .int_lit = try self.strings.intern(stream.sliceWindow()) },
+                .float_lit => .{ .float_lit = try self.strings.intern(stream.sliceWindow()) },
+                else => return LexErr.LexFailure,
+            },
+        });
+
+        self.mode = getMode(stream.peek());
+    }
+
+    pub fn lex(self: *Lexer, src: []const u8) !Result {
+        self.stream = Stream.init(src);
+        self.tokens.items.len = 0;
+
+        while (self.stream.peek()) |ch| {
+            self.mode = getMode(ch);
+
+            switch (self.mode) {
+                .ident => try self.lexIdent(),
+                .keyword => try self.lexIdent(),
+                .symbol => try self.lexSymbol(),
+                .comment => try self.lexComment(false),
+                .string_lit => try self.lexStringLit(),
+                .int_lit => try self.lexNumLit(.int_lit),
+                .float_lit => try self.lexNumLit(.float_lit),
+                .none => {
+                    self.stream.skip();
+                    self.mode = getMode(ch);
+                },
+                .finished => break,
+            }
+        }
+
+        return self.makeResult();
+    }
+
+    fn makeResult(self: Lexer) !Result {
+        return Result{
+            .alloc = self.alloc,
+            .tokens = (try self.tokens.clone()).items,
+            .strings = self.strings,
+        };
+    }
+};
+
+inline fn isAlpha(char: ?u8) bool {
+    const ch = char orelse return false;
+
     return (ch >= 'a' and ch <= 'z') or (ch >= 'A' and ch <= 'Z');
 }
 
-inline fn isNumeric(ch: u8) bool {
+inline fn isNumeric(char: ?u8) bool {
+    const ch = char orelse return false;
+
     return ch >= '0' and ch <= '9';
 }
 
-inline fn validIdent(ch: u8) bool {
+inline fn validIdent(char: ?u8) bool {
+    const ch = char orelse return false;
+
     return isAlpha(ch) or isNumeric(ch) or ch == '_';
 }
 
-inline fn canStartIdent(ch: u8) bool {
+inline fn canStartIdent(char: ?u8) bool {
+    const ch = char orelse return false;
+
     return isAlpha(ch) or ch == '_';
 }
 
-inline fn isWhitespace(ch: u8) bool {
+inline fn isWhitespace(char: ?u8) bool {
+    const ch = char orelse return false;
     return ch == ' ' or ch == '\t' or ch == '\n';
 }
 
-fn canStartSymbol(ch: u8) bool {
-    for (symbols) |sym| {
-        if (sym[0] == ch) {
-            return true;
-        }
+fn getMode(char: ?u8) Mode {
+    const ch = char orelse return .finished;
+
+    if (isWhitespace(ch)) {
+        return .none;
     }
 
-    return false;
-}
-
-fn findFirstSymbol(str: []u8) ?Symbol {
-    for (symbols, 0..) |sym, id| {
-        if (std.mem.startsWith(u8, sym, str)) {
-            return @enumFromInt(id);
-        }
-    }
-
-    return null;
-}
-
-fn getMode(ch: u8) Mode {
     if (canStartIdent(ch)) {
         return .ident;
     }
@@ -363,220 +423,41 @@ fn getMode(ch: u8) Mode {
         return .int_lit;
     }
 
-    if (isWhitespace(ch)) {
-        return .none;
-    }
-
-    if (canStartSymbol(ch)) {
+    const sym_prefix = [_]u8{ch};
+    if (symbols.isSymbolPrefix(sym_prefix[0..])) {
         return .symbol;
     }
 
     return .none;
 }
 
-fn findSymbol(str: []u8) ?Symbol {
-    for (symbols, 0..) |sym, id| {
-        if (std.mem.eql(u8, sym, str)) {
-            return @enumFromInt(id);
-        }
-    }
-
-    return null;
-}
-
-fn findKeyword(str: []u8) ?Keyword {
-    for (keywords, 0..) |keyword, id| {
-        if (std.mem.eql(u8, keyword, str)) {
-            return @enumFromInt(id);
-        }
-    }
-
-    return null;
-}
-
-fn lexIdent(ctx: *Context) !void {
-    while (ctx.reader.peek()) |ch| {
-        if (validIdent(ch)) {
-            try ctx.str.append(ch);
-            ctx.reader.skip();
-            continue;
-        }
-
-        if (findKeyword(ctx.str.items)) |keyword| {
-            ctx.token.kind = .keyword;
-            ctx.token.value = .{ .keyword = keyword };
-        } else {
-            ctx.token.kind = .ident;
-            ctx.token.value = .{ .ident = try ctx.strings.intern(ctx.str.items) };
-        }
-        ctx.token.end_col = ctx.reader.col;
-        ctx.str.items.len = 0;
-        ctx.mode = getMode(ch);
-        return;
-    }
-}
-
-fn lexStringLit(ctx: *Context) !void {
-    var escaped = true; // starting with true so that the starting quote doesn't short circuit
-
-    while (ctx.reader.next()) |ch| {
-        if (ch == '\\' and !escaped) {
-            escaped = true;
-            try ctx.str.append(ch);
-            continue;
-        }
-
-        if (escaped or ch != '"') {
-            try ctx.str.append(ch);
-            escaped = false;
-            continue;
-        }
-
-        // ctx.reader.skip();
-        try ctx.str.append(ch);
-        ctx.token.kind = .string_lit;
-        ctx.token.end_col = ctx.reader.col;
-        ctx.token.value = .{ .string_lit = try ctx.strings.intern(ctx.str.items) };
-        ctx.str.items.len = 0;
-        ctx.mode = .none;
-        return;
-    }
-}
-
-fn lexNumLit(ctx: *Context, initial_kind: Kind) !void {
-    var kind = initial_kind;
-
-    while (ctx.reader.peek()) |ch| {
-        if (isNumeric(ch) or ch == '_') {
-            try ctx.str.append(ch);
-            ctx.reader.skip();
-            continue;
-        }
-
-        if (ch == '.' and kind == .int_lit) {
-            kind = .float_lit;
-            try ctx.str.append(ch);
-            ctx.reader.skip();
-            continue;
-        }
-
-        if (ch == '.' and kind == .float_lit) {
-            return LexErr.InvalidFloatLit;
-        }
-
-        if (validIdent(ch)) {
-            return LexErr.NumericIdent;
-        }
-
-        ctx.token.kind = kind;
-        ctx.token.end_col = ctx.reader.col;
-        var value = try ctx.strings.intern(ctx.str.items);
-        ctx.token.value = if (kind == .int_lit) .{ .int_lit = value } else .{ .float_lit = value };
-        ctx.str.items.len = 0;
-        ctx.mode = getMode(ch);
-        return;
-    }
-}
-
-fn lexSymbol(ctx: *Context) !void {
-    var symbol: Symbol = undefined;
-    while (ctx.reader.peek()) |ch| {
-        try ctx.str.append(ch);
-        if (findFirstSymbol(ctx.str.items)) |sym| {
-            symbol = sym;
-            ctx.reader.skip();
-            continue;
-        }
-
-        break;
-    }
-
-    if (ctx.reader.peek()) |ch| {
-        ctx.str.items.len -= 1;
-
-        if (symbol == .dot and isNumeric(ch)) {
-            return lexNumLit(ctx, .float_lit);
-        }
-    }
-
-    if (symbol == undefined or !std.mem.eql(u8, ctx.str.items, symbol.toString())) {
-        return LexErr.InvalidSymbol;
-    }
-
-    ctx.token.kind = .symbol;
-    ctx.token.value = .{ .symbol = symbol };
-    ctx.token.end_col = ctx.reader.col;
-    ctx.str.items.len = 0;
-    ctx.mode = .none;
-    return;
-}
-
-pub const Result = struct {
-    tokens: []Token,
-    strings: Intern,
-    alloc: std.mem.Allocator,
-
-    pub fn deinit(self: *Result) void {
-        self.alloc.free(self.tokens);
-        self.strings.deinit();
-    }
-};
-
-pub fn lex(alloc: std.mem.Allocator, input: []const u8) anyerror!Result {
-    var ctx = (try Context.init(alloc));
-    ctx.reader = Reader.init(input);
-
-    std.debug.print("Starting lex:\n{s}\n", .{input});
-    while (ctx.reader.peek()) |ch| {
-        try switch (ctx.mode) {
-            .none => {
-                ctx.mode = getMode(ch);
-                if (ctx.mode == .none) {
-                    ctx.reader.skip();
-                }
-            },
-            .ident, .keyword => lexIdent(&ctx),
-            .string_lit => lexStringLit(&ctx),
-            .int_lit => lexNumLit(&ctx, .int_lit),
-            .float_lit => lexNumLit(&ctx, .float_lit),
-            .symbol => lexSymbol(&ctx),
-        };
-
-        // always attempt to push a token if we have one
-        try ctx.pushToken();
-    }
-
-    std.debug.print("Finished lex\n", .{});
-    return .{ .tokens = ctx.tokens.items, .strings = ctx.strings, .alloc = ctx.alloc };
-}
-
-test "reader" {
+test "stream" {
     const t = std.testing;
     const input = "hello";
 
-    var reader = Reader.init(input[0..]);
-    try t.expectEqual(reader.peek(), 'h');
-    try t.expectEqual(reader.next(), 'h');
+    var stream = Stream.init(input[0..]);
+    try t.expectEqual(stream.peek(), 'h');
+    try t.expectEqual(stream.next(), 'h');
 
-    try t.expectEqual(reader.peek(), 'e');
-    try t.expectEqual(reader.next(), 'e');
+    try t.expectEqual(stream.peek(), 'e');
+    try t.expectEqual(stream.next(), 'e');
 
-    try t.expectEqual(reader.peek(), 'l');
-    try t.expectEqual(reader.next(), 'l');
+    try t.expectEqual(stream.peek(), 'l');
+    try t.expectEqual(stream.next(), 'l');
 
-    try t.expectEqual(reader.peek(), 'l');
-    try t.expectEqual(reader.next(), 'l');
+    try t.expectEqual(stream.peek(), 'l');
+    try t.expectEqual(stream.next(), 'l');
 
-    try t.expectEqual(reader.peek(), 'o');
-    try t.expectEqual(reader.next(), 'o');
+    try t.expectEqual(stream.peek(), 'o');
+    try t.expectEqual(stream.next(), 'o');
 
-    try t.expectEqual(reader.peek(), null);
-    try t.expectEqual(reader.next(), null);
+    try t.expectEqual(stream.peek(), null);
+    try t.expectEqual(stream.next(), null);
 
-    reader.reset();
+    stream.reset();
 
-    try t.expectEqual(reader.peek(), 'h');
-    try t.expectEqual(reader.next(), 'h');
+    try t.expectEqual(stream.peek(), 'h');
+    try t.expectEqual(stream.next(), 'h');
 }
 
 // test "lex" {
