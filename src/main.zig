@@ -1,5 +1,6 @@
 const std = @import("std");
-const Lexer = @import("lex.zig");
+const lex = @import("lex.zig");
+const Intern = @import("intern.zig");
 
 pub fn main() !void {
     var file = try std.fs.cwd().openFile("test.fig", .{});
@@ -9,8 +10,11 @@ pub fn main() !void {
     const file_len = try file.readAll(&src);
 
     const allocator = std.heap.page_allocator;
-    var res = try Lexer.lex(allocator, src[0..file_len]);
+    var strings = try Intern.init(allocator);
+    var lexer = try lex.Lexer.init(allocator, &strings);
+    var res = try lexer.lex(src[0..file_len]);
     defer res.deinit();
+
     for (res.tokens) |token| {
         token.print();
     }

@@ -3,22 +3,20 @@ const ArrayList = std.ArrayList;
 const t = std.testing;
 
 const Intern = @This();
-alloc: std.mem.Allocator,
+arena: std.heap.ArenaAllocator,
 strings: ArrayList([]u8),
 
 pub fn init(alloc: std.mem.Allocator) !Intern {
+    var arena = std.heap.ArenaAllocator.init(alloc);
+
     return .{
-        .alloc = alloc,
-        .strings = try ArrayList([]u8).initCapacity(alloc, 512),
+        .arena = arena,
+        .strings = try ArrayList([]u8).initCapacity(arena.allocator(), 1024),
     };
 }
 
 pub fn deinit(self: *Intern) void {
-    for (self.strings.items) |str| {
-        self.alloc.free(str);
-    }
-
-    self.strings.deinit();
+    self.arena.deinit();
 }
 
 pub fn intern(self: *Intern, string: []const u8) ![]u8 {
@@ -33,7 +31,7 @@ pub fn intern(self: *Intern, string: []const u8) ![]u8 {
         }
     }
 
-    const new_str = try self.alloc.alloc(u8, string.len);
+    const new_str = try self.arena.allocator().alloc(u8, string.len);
     @memcpy(new_str, string);
     try self.strings.append(new_str);
 
@@ -73,4 +71,5 @@ test "intern multiple strings" {
     try t.expectEqual(world, try int.intern("world"));
     try t.expectEqual(foo, try int.intern("foo"));
     try t.expectEqual(bar, try int.intern("bar"));
+    try t.expectEqual(int.len(), 4);
 }
